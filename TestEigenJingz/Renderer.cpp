@@ -228,12 +228,12 @@ void Renderer::Render(const Scene& scene)
             // Also, don't forget to multiply both of them with the variable *scale*, and
             // x (horizontal) variable with the *imageAspectRatio*  
             // generate primary ray direction
-            float u = ((float)i + 0.5) / scene.width;
-            float v= ((float)j + 0.5) / scene.height;
+            float u = 2 * ((float)i + 0.5) / scene.width;
+            float v = 2 * ((float)j + 0.5) / scene.height;
             
             //将屏幕空间类的坐标偏移到和NDC一样的原点
             u = u - 1.0f;
-            v = -(v - 1.0f);//y方向从左下角为起始点
+            v = 1.0f - v;//屏幕空间y方向从左上角作为起始点，而NDC左下角为起始点
 
             //通过屏幕和NDC空间的比例算出原屏幕方向下对应的NDC空间方向
             float x = u * scale * imageAspectRatio;
