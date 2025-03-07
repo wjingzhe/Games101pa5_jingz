@@ -208,6 +208,7 @@ Vector3f castRay(
 // primary rays and cast these rays into the scene. The content of the framebuffer is
 // saved to a file.
 // [/comment]
+//简单预设了摄像机在坐标远点，没有Viewport这类投影计算，直接将ndc空间硬换成3D坐标系，真的是服了这类教程作业
 void Renderer::Render(const Scene& scene)
 {
     std::vector<Vector3f> framebuffer(scene.width * scene.height);
@@ -222,17 +223,27 @@ void Renderer::Render(const Scene& scene)
     {
         for (int i = 0; i < scene.width; ++i)
         {
-            // generate primary ray direction
-            float x=0;//jingz 临时性编译
-            float y=0;//jingz 临时性编译
             // TODO: Find the x and y positions of the current pixel to get the direction
             // vector that passes through it.
             // Also, don't forget to multiply both of them with the variable *scale*, and
-            // x (horizontal) variable with the *imageAspectRatio*            
+            // x (horizontal) variable with the *imageAspectRatio*  
+            // generate primary ray direction
+            float u = ((float)i + 0.5) / scene.width;
+            float v= ((float)j + 0.5) / scene.height;
+            
+            //将屏幕空间类的坐标偏移到和NDC一样的原点
+            u = u - 1.0f;
+            v = -(v - 1.0f);//y方向从左下角为起始点
 
-            Vector3f dir = Vector3f(x, y, -1); // Don't forget to normalize this direction!
-            framebuffer[m++] = castRay(eye_pos, dir, scene, 0);
+            //通过屏幕和NDC空间的比例算出原屏幕方向下对应的NDC空间方向
+            float x = u * scale * imageAspectRatio;
+            float y = v * scale;
+                      
+            Vector3f dir_NDC = Vector3f(x, y, -1); // Don't forget to normalize this direction!
+            framebuffer[m++] = castRay(eye_pos, dir_NDC, scene, 0);//因为ndc空间和view所在的模型空间重合，所以不需要坐标转换，直接当3D坐标使用
         }
+
+        //在命令行窗口输出简单进度条
         UpdateProgress(j / (float)scene.height);
     }
 

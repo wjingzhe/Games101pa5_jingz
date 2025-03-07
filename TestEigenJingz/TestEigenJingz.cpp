@@ -37,6 +37,7 @@ int main()
     scene.Add(std::make_unique<Light>(Vector3f(-20, 70, 20), 0.5));
     scene.Add(std::make_unique<Light>(Vector3f(30, 50, -12), 0.5));
 
+    //简单预设了摄像机在坐标远点，没有Viewport这类投影计算，直接将ndc空间硬换成3D坐标系，真的是服了这类教程作业
     Renderer r;
     r.Render(scene);
 
