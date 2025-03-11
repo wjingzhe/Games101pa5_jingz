@@ -33,4 +33,5 @@ public:
     float Kd, Ks;
     Vector3f diffuseColor;
     float specularExponent;
+    //jingz 没保留transform信息，没办法在模型局部坐标系下做运算，只能全在世界坐标系下完成demo
 };

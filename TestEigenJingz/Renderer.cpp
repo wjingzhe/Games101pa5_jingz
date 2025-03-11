@@ -81,7 +81,7 @@ float fresnel(const Vector3f& I, const Vector3f& N, const float& ior)
 // \param isShadowRay is it a shadow ray. We can return from the function sooner as soon as we have found a hit.
 // [/comment]
 std::optional<hit_payload> trace(
-        const Vector3f &orig, const Vector3f &dir,
+        const Vector3f &orig_world, const Vector3f &dir_world,
         const std::vector<std::unique_ptr<Object> > &objects)
 {
     float tNear = kInfinity;
@@ -91,7 +91,7 @@ std::optional<hit_payload> trace(
         float tNearK = kInfinity;
         uint32_t indexK;
         Vector2f uvK;
-        if (object->intersect(orig, dir, tNearK, indexK, uvK) && tNearK < tNear)
+        if (object->intersect(orig_world, dir_world, tNearK, indexK, uvK) && tNearK < tNear)
         {
             payload.emplace();
             payload->hit_obj = object.get();
@@ -122,7 +122,7 @@ std::optional<hit_payload> trace(
 // at the intersection point.
 // [/comment]
 Vector3f castRay(
-        const Vector3f &orig, const Vector3f &dir, const Scene& scene,
+        const Vector3f &orig_world, const Vector3f &dir_world, const Scene& scene,
         int depth)
 {
     if (depth > scene.maxDepth) {
@@ -130,17 +130,19 @@ Vector3f castRay(
     }
 
     Vector3f hitColor = scene.backgroundColor;
-    if (auto payload = trace(orig, dir, scene.get_objects()); payload)
+
+    if (auto payload = trace(orig_world, dir_world, scene.get_objects()); payload)//origin需要从view空间转到模型空间
     {
-        Vector3f hitPoint = orig + dir * payload->tNear;
+        Vector3f hitPoint = orig_world + dir_world * payload->tNear;
         Vector3f N; // normal
         Vector2f st; // st coordinates
-        payload->hit_obj->getSurfaceProperties(hitPoint, dir, payload->index, payload->uv, N, st);
+        //正常来说，法线需要乘上WorldMatrix的旋转子矩阵的转置，但这段代码的世界坐标系就是原点且没有旋转
+        payload->hit_obj->getSurfaceProperties(hitPoint, dir_world, payload->index, payload->uv, N, st);
         switch (payload->hit_obj->materialType) {
             case REFLECTION_AND_REFRACTION:
             {
-                Vector3f reflectionDirection = normalize(reflect(dir, N));
-                Vector3f refractionDirection = normalize(refract(dir, N, payload->hit_obj->ior));
+                Vector3f reflectionDirection = normalize(reflect(dir_world, N));
+                Vector3f refractionDirection = normalize(refract(dir_world, N, payload->hit_obj->ior));
                 Vector3f reflectionRayOrig = (dotProduct(reflectionDirection, N) < 0) ?
                                              hitPoint - N * scene.epsilon :
                                              hitPoint + N * scene.epsilon;
@@ -149,14 +151,14 @@ Vector3f castRay(
                                              hitPoint + N * scene.epsilon;
                 Vector3f reflectionColor = castRay(reflectionRayOrig, reflectionDirection, scene, depth + 1);
                 Vector3f refractionColor = castRay(refractionRayOrig, refractionDirection, scene, depth + 1);
-                float kr = fresnel(dir, N, payload->hit_obj->ior);
+                float kr = fresnel(dir_world, N, payload->hit_obj->ior);
                 hitColor = reflectionColor * kr + refractionColor * (1 - kr);
                 break;
             }
             case REFLECTION:
             {
-                float kr = fresnel(dir, N, payload->hit_obj->ior);
-                Vector3f reflectionDirection = reflect(dir, N);
+                float kr = fresnel(dir_world, N, payload->hit_obj->ior);
+                Vector3f reflectionDirection = reflect(dir_world, N);
                 Vector3f reflectionRayOrig = (dotProduct(reflectionDirection, N) < 0) ?
                                              hitPoint + N * scene.epsilon :
                                              hitPoint - N * scene.epsilon;
@@ -170,7 +172,7 @@ Vector3f castRay(
                 // is composed of a diffuse and a specular reflection component.
                 // [/comment]
                 Vector3f lightAmt = 0, specularColor = 0;
-                Vector3f shadowPointOrig = (dotProduct(dir, N) < 0) ?
+                Vector3f shadowPointOrig = (dotProduct(dir_world, N) < 0) ?
                                            hitPoint + N * scene.epsilon :
                                            hitPoint - N * scene.epsilon;
                 // [comment]
@@ -178,19 +180,20 @@ Vector3f castRay(
                 // We also apply the lambert cosine law
                 // [/comment]
                 for (auto& light : scene.get_lights()) {
-                    Vector3f lightDir = light->position - hitPoint;
+                    Vector3f lightDir = light->position - hitPoint;//从着色点往光源打出射线，在世界空间做相交检测，看是否被遮挡（在阴影区内）
                     // square of the distance between hitPoint and the light
                     float lightDistance2 = dotProduct(lightDir, lightDir);
                     lightDir = normalize(lightDir);
-                    float LdotN = std::max(0.f, dotProduct(lightDir, N));
+
                     // is the point in shadow, and is the nearest occluding object closer to the object than the light itself?
                     auto shadow_res = trace(shadowPointOrig, lightDir, scene.get_objects());
                     bool inShadow = shadow_res && (shadow_res->tNear * shadow_res->tNear < lightDistance2);
 
+                    float LdotN = std::max(0.f, dotProduct(lightDir, N));
                     lightAmt += inShadow ? 0 : light->intensity * LdotN;
                     Vector3f reflectionDirection = reflect(-lightDir, N);
 
-                    specularColor += powf(std::max(0.f, -dotProduct(reflectionDirection, dir)),
+                    specularColor += powf(std::max(0.f, -dotProduct(reflectionDirection, dir_world)),
                         payload->hit_obj->specularExponent) * light->intensity;
                 }
 
@@ -238,9 +241,10 @@ void Renderer::Render(const Scene& scene)
             //通过屏幕和NDC空间的比例算出原屏幕方向下对应的NDC空间方向
             float x = u * scale * imageAspectRatio;
             float y = v * scale;
+            //因为ndc空间和view所在的模型空间重合，所以不需要坐标转换,即可在世界坐标系空间做相交检测
                       
-            Vector3f dir_NDC = Vector3f(x, y, -1); // Don't forget to normalize this direction!
-            framebuffer[m++] = castRay(eye_pos, dir_NDC, scene, 0);//因为ndc空间和view所在的模型空间重合，所以不需要坐标转换，直接当3D坐标使用
+            Vector3f dir_world = normalize(Vector3f(x, y, -1)); // Don't forget to normalize this direction!
+            framebuffer[m++] = castRay(eye_pos, dir_world, scene, 0);//，直接当3D坐标使用
         }
 
         //在命令行窗口输出简单进度条
